@@ -1,5 +1,5 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QCheckBox, QMessageBox
+from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QCheckBox, QMessageBox, QTabWidget
 from PyQt6.QtCore import Qt
 import pathlib
 
@@ -16,6 +16,29 @@ class SnapshotGUI(QWidget):
 
     def initUI(self):
         self.setWindowTitle('Dynmap Snapshotter')
+        main_layout = QVBoxLayout()
+        self.tab_widget = QTabWidget()
+        
+        # create tabs
+        self.snapshot_tab = QWidget()
+        self.settings_tab = QWidget()
+        
+        self.tab_widget.addTab(self.snapshot_tab, "Snapshot")
+        self.tab_widget.addTab(self.settings_tab, "Settings")
+
+        # set up each tab
+        self.setup_snapshot_tab()
+        self.setup_settings_tab()
+
+        main_layout.addWidget(self.tab_widget)
+        self.setLayout(main_layout)
+        self.resize(400, 300)
+
+        # initialize ui
+        self.toggle_resize_options()
+        self.update_worlds()
+
+    def setup_snapshot_tab(self):
         layout = QVBoxLayout()
 
         # folder selection
@@ -38,6 +61,16 @@ class SnapshotGUI(QWidget):
         self.map_combo = QComboBox()
         layout.addWidget(QLabel('Map:'))
         layout.addWidget(self.map_combo)
+
+        # snapshot button
+        create_button = QPushButton('Create Snapshot')
+        create_button.clicked.connect(self.create_snapshot)
+        layout.addWidget(create_button)
+
+        self.snapshot_tab.setLayout(layout)
+
+    def setup_settings_tab(self):
+        layout = QVBoxLayout()
 
         # resize options
         self.resize_check = QCheckBox('Resize output')
@@ -75,17 +108,7 @@ class SnapshotGUI(QWidget):
         discord_layout.addWidget(self.message_input)
         layout.addLayout(discord_layout)
 
-        # snapshot button
-        create_button = QPushButton('Create Snapshot')
-        create_button.clicked.connect(self.create_snapshot)
-        layout.addWidget(create_button)
-
-        self.setLayout(layout)
-        self.resize(400, 300)
-
-        # initialize ui
-        self.toggle_resize_options()
-        self.update_worlds()
+        self.settings_tab.setLayout(layout)
 
     def browse_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Dynmap Tiles Directory")
