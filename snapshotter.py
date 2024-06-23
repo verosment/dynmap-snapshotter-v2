@@ -20,7 +20,14 @@ def get_all_tile_coords_from_dir(tiles_dir, world_name, map_name):
     tile_coords = []
     for subdir in map_subdirs:
         stems = [path.stem for path in subdir.iterdir() if not path.name.startswith('z')]
-        [tile_coords.append(tuple(map(int, stem.split('_')))) for stem in stems]
+        for stem in stems:
+            try:
+                coords = tuple(map(int, stem.split('_')))
+                if len(coords) == 2:
+                    tile_coords.append(coords)
+            except ValueError:
+                print(f"Skipping a file with an unexpected naming format: {stem}")
+                continue
 
     return tile_coords
 
@@ -159,7 +166,7 @@ def save_snapshot(snapshot, world_name, map_name):
         save_dir.mkdir()
 
     # create timestamped filename
-    print('saveing snapshot ...')
+    print('saving snapshot ...')
     now = datetime.datetime.now()
     timestamp = now.strftime("%d-%m-%Y--%H-%M")
     filename = f'{timestamp}--{world_name}-{map_name}.png'
