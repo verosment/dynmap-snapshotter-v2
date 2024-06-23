@@ -168,7 +168,7 @@ def save_snapshot(snapshot, world_name, map_name):
     # create timestamped filename
     print('saving snapshot ...')
     now = datetime.datetime.now()
-    timestamp = now.strftime("%d-%m-%Y--%H-%M")
+    timestamp = now.strftime("%d-%m-%Y--%H-%M-%S")
     filename = f'{timestamp}--{world_name}-{map_name}.png'
     output_path = save_dir.joinpath(filename)
     snapshot.save(output_path, 'PNG')
