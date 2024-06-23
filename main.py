@@ -5,7 +5,6 @@ import pathlib
 from PIL import Image, ImageColor
 import random
 
-
 # import from snapshotter.py
 from snapshotter import (
     get_world_names, get_map_names, create_snapshot, save_snapshot,
