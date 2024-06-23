@@ -2,8 +2,6 @@ import sys
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QCheckBox, QMessageBox
 from PyQt6.QtCore import Qt
 import pathlib
-from PIL import Image, ImageColor
-import random
 
 # import from snapshotter.py
 from snapshotter import (
