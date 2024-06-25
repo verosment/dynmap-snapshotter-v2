@@ -1,5 +1,5 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QCheckBox, QMessageBox, QTabWidget
+from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QCheckBox, QMessageBox, QTabWidget, QColorDialog, QDialogButtonBox
 from PyQt6.QtCore import Qt
 import pathlib
 
@@ -89,10 +89,11 @@ class SnapshotGUI(QWidget):
         # background color
         color_layout = QHBoxLayout()
         self.color_check = QCheckBox('Apply background color')
-        self.color_input = QLineEdit()
-        self.color_input.setPlaceholderText('Color hex (e.g., #ff0000)')
+        self.color_button = QPushButton('Choose Color')
+        self.color_button.clicked.connect(self.open_color_dialog)
+        self.selected_color = None
         color_layout.addWidget(self.color_check)
-        color_layout.addWidget(self.color_input)
+        color_layout.addWidget(self.color_button)
         layout.addLayout(color_layout)
 
         # discord options
@@ -136,6 +137,12 @@ class SnapshotGUI(QWidget):
         self.scale_input.setEnabled(enabled)
         self.tile_size_input.setEnabled(enabled)
 
+    def open_color_dialog(self):
+        color = QColorDialog.getColor()
+        if color.isValid():
+            self.selected_color = color
+            self.color_button.setStyleSheet(f'background-color: {color.name()};')
+
     def create_snapshot(self):
         tiles_dir = self.folder_input.text()
         world_name = self.world_combo.currentText()
@@ -145,9 +152,10 @@ class SnapshotGUI(QWidget):
             QMessageBox.warning(self, "Missing Information", "Please fill in all required fields.")
             return
 
-        scale = float(self.scale_input.text()) if self.scale_input.text() else None
-        fixed_tile_size = int(self.tile_size_input.text()) if self.tile_size_input.text() else None
-        color_hex = self.color_input.text() if self.color_check.isChecked() else None
+        scale = float(self.scale_input.text()) if self.scale_input.text() and self.resize_check.isChecked() else None
+        fixed_tile_size = int(self.tile_size_input.text()) if self.tile_size_input.text() and self.resize_check.isChecked() else None
+
+        color_hex = self.selected_color.name() if self.color_check.isChecked() and self.selected_color else None
 
         try:
             snapshot = create_snapshot(tiles_dir, world_name, map_name, scale, fixed_tile_size, color_hex)
@@ -159,7 +167,7 @@ class SnapshotGUI(QWidget):
                 if is_discord_available and webhook_url:
                     post_to_discord_webhook(snapshot_path, webhook_url, message)
                 else:
-                    QMessageBox.warning(self, "Discord Error", "Unable to post to Discord. Check your webhook URL and/or ensure the 'discord' package is installed.")
+                    QMessageBox.warning(self, "Discord Error", "Unable to post to Discord. Check your webhook URL and ensure the 'discord' package is installed.")
 
             QMessageBox.information(self, "Success", f"Snapshot created and saved to:\n{snapshot_path}")
         except Exception as e:
