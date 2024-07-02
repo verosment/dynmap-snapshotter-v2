@@ -1,5 +1,5 @@
 ROADMAP:
  - cropping
- - progressbars
+ - progress bars
  - print time of execution
- - capturing based off timer (capture every 1 hour or whatever value the user chooses)
+ - custom output directory
