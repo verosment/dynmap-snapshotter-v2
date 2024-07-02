@@ -14,7 +14,7 @@ class SnapshotWorker(QObject):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, tiles_dir, world_name, map_name, scale, fixed_tile_size, color_hex, webhook_url, message):
+    def __init__(self, tiles_dir, world_name, map_name, scale, fixed_tile_size, color_hex, webhook_url, message, is_auto=False):
         super().__init__()
         self.tiles_dir = tiles_dir
         self.world_name = world_name
@@ -24,6 +24,7 @@ class SnapshotWorker(QObject):
         self.color_hex = color_hex
         self.webhook_url = webhook_url
         self.message = message
+        self.is_auto = is_auto
 
     def run(self):
         try:
@@ -45,6 +46,7 @@ class SnapshotWorker(QObject):
 class AutoSnapshotWorker(QObject):
     finished = pyqtSignal()
     create_snapshot = pyqtSignal()
+    update_countdown = pyqtSignal(int)
 
     def __init__(self, interval):
         super().__init__()
@@ -54,7 +56,11 @@ class AutoSnapshotWorker(QObject):
     def run(self):
         while self.is_running:
             self.create_snapshot.emit()
-            time.sleep(self.interval)
+            for remaining in range(int(self.interval), 0, -1):
+                if not self.is_running:
+                    break
+                self.update_countdown.emit(remaining)
+                time.sleep(1)
         self.finished.emit()
 
 class SnapshotGUI(QWidget):
@@ -120,7 +126,6 @@ class SnapshotGUI(QWidget):
         self.start_auto_button.clicked.connect(self.start_auto_snapshots)
         self.start_auto_button.hide()
         
-        # Add both buttons to the layout
         layout.addWidget(self.create_button)
         layout.addWidget(self.start_auto_button)
 
@@ -238,12 +243,16 @@ class SnapshotGUI(QWidget):
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         self.worker.create_snapshot.connect(self.create_snapshot)
+        self.worker.update_countdown.connect(self.update_button_text)
 
         self.thread.start()
 
         self.start_auto_button.setText("Stop Auto Snapshots")
         self.start_auto_button.clicked.disconnect()
         self.start_auto_button.clicked.connect(self.stop_auto_snapshots)
+
+    def update_button_text(self, remaining):
+        self.start_auto_button.setText(f"Waiting for {remaining} seconds...")
 
     def stop_auto_snapshots(self):
         if self.worker:
@@ -274,8 +283,10 @@ class SnapshotGUI(QWidget):
         webhook_url = self.webhook_input.text() if self.toggle_discord.isChecked() else None
         message = self.message_input.text() if self.toggle_discord.isChecked() else None
 
+        is_auto = self.toggle_auto_snaps.isChecked()
+
         self.snapshot_thread = QThread()
-        self.snapshot_worker = SnapshotWorker(tiles_dir, world_name, map_name, scale, fixed_tile_size, color_hex, webhook_url, message)
+        self.snapshot_worker = SnapshotWorker(tiles_dir, world_name, map_name, scale, fixed_tile_size, color_hex, webhook_url, message, is_auto)
         self.snapshot_worker.moveToThread(self.snapshot_thread)
         self.snapshot_thread.started.connect(self.snapshot_worker.run)
         self.snapshot_worker.finished.connect(self.snapshot_thread.quit)
@@ -284,10 +295,16 @@ class SnapshotGUI(QWidget):
         self.snapshot_worker.finished.connect(self.snapshot_success)
         self.snapshot_worker.error.connect(self.snapshot_error)
 
+        if is_auto:
+            self.start_auto_button.setText("Saving...")
+
         self.snapshot_thread.start()
 
     def snapshot_success(self, snapshot_path):
-        QMessageBox.information(self, "Success", f"Snapshot created and saved to:\n{snapshot_path}")
+        if self.toggle_auto_snaps.isChecked():
+            print(f"Snapshot created and saved to: {snapshot_path}")
+        else:
+            QMessageBox.information(self, "Success", f"Snapshot created and saved to:\n{snapshot_path}")
 
     def snapshot_error(self, error_message):
         QMessageBox.critical(self, "Error", f"An error has occurred: {error_message}")
