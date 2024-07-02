@@ -1,7 +1,8 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QCheckBox, QMessageBox, QTabWidget, QColorDialog, QDialogButtonBox
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QComboBox, QCheckBox, QMessageBox, QTabWidget, QColorDialog
+from PyQt6.QtCore import QObject, pyqtSignal, QThread
 import pathlib
+import time
 
 # import from snapshotter.py
 from snapshotter import (
@@ -9,10 +10,59 @@ from snapshotter import (
     post_to_discord_webhook, is_discord_available
 )
 
+class SnapshotWorker(QObject):
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, tiles_dir, world_name, map_name, scale, fixed_tile_size, color_hex, webhook_url, message):
+        super().__init__()
+        self.tiles_dir = tiles_dir
+        self.world_name = world_name
+        self.map_name = map_name
+        self.scale = scale
+        self.fixed_tile_size = fixed_tile_size
+        self.color_hex = color_hex
+        self.webhook_url = webhook_url
+        self.message = message
+
+    def run(self):
+        try:
+            snapshot = create_snapshot(self.tiles_dir, self.world_name, self.map_name, self.scale, self.fixed_tile_size, self.color_hex)
+            snapshot_path = save_snapshot(snapshot, self.world_name, self.map_name)
+            
+            snapshot_path_str = str(snapshot_path)
+
+            if self.webhook_url:
+                if is_discord_available:
+                    post_to_discord_webhook(snapshot_path_str, self.webhook_url, self.message)
+                else:
+                    self.error.emit("Unable to post to Discord. Ensure the 'discord' package is installed.")
+
+            self.finished.emit(snapshot_path_str)
+        except Exception as e:
+            self.error.emit(str(e))
+
+class AutoSnapshotWorker(QObject):
+    finished = pyqtSignal()
+    create_snapshot = pyqtSignal()
+
+    def __init__(self, interval):
+        super().__init__()
+        self.interval = interval
+        self.is_running = True
+
+    def run(self):
+        while self.is_running:
+            self.create_snapshot.emit()
+            time.sleep(self.interval)
+        self.finished.emit()
+
 class SnapshotGUI(QWidget):
     def __init__(self):
         super().__init__()
         self.initUI()
+        self.worker = None
+        self.thread = None
 
     def initUI(self):
         self.setWindowTitle('Dynmap Snapshotter')
@@ -37,6 +87,7 @@ class SnapshotGUI(QWidget):
         # initialize ui
         self.toggle_resize_options()
         self.update_worlds()
+        self.toggle_snaps_options()
 
     def setup_snapshot_tab(self):
         layout = QVBoxLayout()
@@ -62,10 +113,16 @@ class SnapshotGUI(QWidget):
         layout.addWidget(QLabel('Map:'))
         layout.addWidget(self.map_combo)
 
-        # snapshot button
-        create_button = QPushButton('Create Snapshot')
-        create_button.clicked.connect(self.create_snapshot)
-        layout.addWidget(create_button)
+        # snapshot buttons
+        self.create_button = QPushButton('Create Snapshot')
+        self.create_button.clicked.connect(self.create_snapshot)
+        self.start_auto_button = QPushButton('Start Auto Snapshots')
+        self.start_auto_button.clicked.connect(self.start_auto_snapshots)
+        self.start_auto_button.hide()
+        
+        # Add both buttons to the layout
+        layout.addWidget(self.create_button)
+        layout.addWidget(self.start_auto_button)
 
         self.snapshot_tab.setLayout(layout)
 
@@ -86,6 +143,18 @@ class SnapshotGUI(QWidget):
         resize_layout.addWidget(self.tile_size_input)
         layout.addLayout(resize_layout)
 
+        # auto snapshots
+        self.auto_snaps_input = QLineEdit()
+        self.auto_snaps_input.setPlaceholderText('Interval (Minutes)')
+        auto_snapshot_layout = QHBoxLayout()
+        self.toggle_auto_snaps = QCheckBox('Enable automatic snapshots')
+
+        self.toggle_auto_snaps.stateChanged.connect(self.toggle_snaps_options)
+
+        auto_snapshot_layout.addWidget(self.toggle_auto_snaps)
+        auto_snapshot_layout.addWidget(self.auto_snaps_input)
+        layout.addLayout(auto_snapshot_layout)
+
         # background color
         color_layout = QHBoxLayout()
         self.color_check = QCheckBox('Apply background color')
@@ -97,9 +166,8 @@ class SnapshotGUI(QWidget):
         layout.addLayout(color_layout)
 
         # discord options
-        self.discord_check = QCheckBox('Post to Discord')
-        layout.addWidget(self.discord_check)
-
+        self.toggle_discord = QCheckBox('Post to Discord')
+        layout.addWidget(self.toggle_discord)
         discord_layout = QVBoxLayout()
         self.webhook_input = QLineEdit()
         self.webhook_input.setPlaceholderText('Discord Webhook URL')
@@ -107,6 +175,7 @@ class SnapshotGUI(QWidget):
         self.message_input.setPlaceholderText('Discord message')
         discord_layout.addWidget(self.webhook_input)
         discord_layout.addWidget(self.message_input)
+        self.toggle_discord.stateChanged.connect(self.toggle_discord_options)
         layout.addLayout(discord_layout)
 
         self.settings_tab.setLayout(layout)
@@ -143,6 +212,51 @@ class SnapshotGUI(QWidget):
             self.selected_color = color
             self.color_button.setStyleSheet(f'background-color: {color.name()};')
 
+    def toggle_discord_options(self):
+        enabled = self.toggle_discord.isChecked()
+        self.webhook_input.setEnabled(enabled)
+        self.message_input.setEnabled(enabled)
+
+    def toggle_snaps_options(self):
+        enabled = self.toggle_auto_snaps.isChecked()
+        self.auto_snaps_input.setEnabled(enabled)
+        
+        if enabled:
+            self.create_button.hide()
+            self.start_auto_button.show()
+        else:
+            self.create_button.show()
+            self.start_auto_button.hide()
+
+    def start_auto_snapshots(self):
+        interval = float(self.auto_snaps_input.text()) * 60
+        self.worker = AutoSnapshotWorker(interval)
+        self.thread = QThread()
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.worker.create_snapshot.connect(self.create_snapshot)
+
+        self.thread.start()
+
+        self.start_auto_button.setText("Stop Auto Snapshots")
+        self.start_auto_button.clicked.disconnect()
+        self.start_auto_button.clicked.connect(self.stop_auto_snapshots)
+
+    def stop_auto_snapshots(self):
+        if self.worker:
+            self.worker.is_running = False
+            self.thread.quit()
+            self.thread.wait()
+            self.worker = None
+            self.thread = None
+
+        self.start_auto_button.setText("Start Auto Snapshots")
+        self.start_auto_button.clicked.disconnect()
+        self.start_auto_button.clicked.connect(self.start_auto_snapshots)
+
     def create_snapshot(self):
         tiles_dir = self.folder_input.text()
         world_name = self.world_combo.currentText()
@@ -157,22 +271,26 @@ class SnapshotGUI(QWidget):
 
         color_hex = self.selected_color.name() if self.color_check.isChecked() and self.selected_color else None
 
-        try:
-            snapshot = create_snapshot(tiles_dir, world_name, map_name, scale, fixed_tile_size, color_hex)
-            snapshot_path = save_snapshot(snapshot, world_name, map_name)
+        webhook_url = self.webhook_input.text() if self.toggle_discord.isChecked() else None
+        message = self.message_input.text() if self.toggle_discord.isChecked() else None
 
-            if self.discord_check.isChecked():
-                webhook_url = self.webhook_input.text()
-                message = self.message_input.text()
-                if is_discord_available and webhook_url:
-                    post_to_discord_webhook(snapshot_path, webhook_url, message)
-                else:
-                    QMessageBox.warning(self, "Discord Error", "Unable to post to Discord. Check your webhook URL and ensure the 'discord' package is installed.")
+        self.snapshot_thread = QThread()
+        self.snapshot_worker = SnapshotWorker(tiles_dir, world_name, map_name, scale, fixed_tile_size, color_hex, webhook_url, message)
+        self.snapshot_worker.moveToThread(self.snapshot_thread)
+        self.snapshot_thread.started.connect(self.snapshot_worker.run)
+        self.snapshot_worker.finished.connect(self.snapshot_thread.quit)
+        self.snapshot_worker.finished.connect(self.snapshot_worker.deleteLater)
+        self.snapshot_thread.finished.connect(self.snapshot_thread.deleteLater)
+        self.snapshot_worker.finished.connect(self.snapshot_success)
+        self.snapshot_worker.error.connect(self.snapshot_error)
 
-            QMessageBox.information(self, "Success", f"Snapshot created and saved to:\n{snapshot_path}")
-        except Exception as e:
-            print(f"An error has occurred: {str(e)}")
-            QMessageBox.critical(self, "Error", f"An error has occurred: {str(e)}")
+        self.snapshot_thread.start()
+
+    def snapshot_success(self, snapshot_path):
+        QMessageBox.information(self, "Success", f"Snapshot created and saved to:\n{snapshot_path}")
+
+    def snapshot_error(self, error_message):
+        QMessageBox.critical(self, "Error", f"An error has occurred: {error_message}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
