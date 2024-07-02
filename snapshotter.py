@@ -43,8 +43,15 @@ class Tile:
 def load_tile_image_from_dir(tile, tiles_dir, world_name, map_name):
     """ load tile image from tiles directory """
     x, z = tile.coords
-    tile_path = pathlib.Path(tiles_dir).joinpath(world_name, map_name, f'{x >> 5}_{z >> 5}/{x}_{z}.jpg')
-    tile.image = Image.open(tile_path)
+    base_path = pathlib.Path(tiles_dir).joinpath(world_name, map_name, f'{x >> 5}_{z >> 5}/{x}_{z}')
+    extensions = ['.jpg', '.jpeg', '.png', '.webp']
+    
+    for ext in extensions:
+        tile_path = base_path.with_suffix(ext)
+        if tile_path.exists():
+            tile.image = Image.open(tile_path)
+            return
+    raise FileNotFoundError(f"No image file found for tile at coordinates {x}, {z}")
 
 
 def load_tile_images_from_dir(tiles, tiles_dir, world_name, map_name):
